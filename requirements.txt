@@ -1,0 +1,4 @@
+# Core tool has zero required dependencies - stdlib only.
+# Install the line below only if you want Gemini-upgraded explanations
+# instead of the offline template mode:
+# google-generativeai>=0.5
