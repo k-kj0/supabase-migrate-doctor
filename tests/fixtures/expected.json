@@ -1,0 +1,7 @@
+[
+  {"file": ".env.local", "line": 2, "severity": "MEDIUM"},
+  {"file": ".env.local", "line": 3, "severity": "HIGH"},
+  {"file": "src/supabaseClient.js", "line": 6, "severity": "CRITICAL"},
+  {"file": "api/admin.py", "line": 8, "severity": "HIGH"},
+  {"file": "src/newClient.js", "line": 5, "severity": "INFO"}
+]
