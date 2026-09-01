@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supabase-migrate-doctor"
+version = "0.1.0"
+description = "Scans a repo for legacy Supabase API key usage and explains what to do about it, grounded in Supabase's own migration docs."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+gemini = ["google-generativeai>=0.5"]
+
+[project.scripts]
+supabase-migrate = "supabase_migrate.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["supabase_migrate*"]
