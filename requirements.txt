@@ -1,4 +1,6 @@
 # Core tool has zero required dependencies - stdlib only.
-# Install the line below only if you want Gemini-upgraded explanations
-# instead of the offline template mode:
-# google-generativeai>=0.5
+# Install ONE of the lines below only if you want generated (rather than
+# template) explanations. Both are optional - the tool works fully offline
+# without either one.
+# google-generativeai>=0.5   # if using GEMINI_API_KEY (paid tier / free tier w/ rate limits)
+# groq>=0.9                 # if using GROQ_API_KEY (open-weight models, free tier)
