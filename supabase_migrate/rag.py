@@ -70,14 +70,37 @@ def explain(topic: str, finding_line: str, kb: dict[str, KBDoc]) -> str:
     if doc is None:
         return "No matching guidance found in the knowledge base for this finding."
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if api_key:
+    # Provider priority: Gemini (if key present) -> Groq (if key present) ->
+    # deterministic offline template. Both providers get the exact same
+    # grounded prompt, so swapping providers doesn't change *what* is
+    # generated, only which model generates it.
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
+
+    if gemini_key:
         try:
-            return _explain_with_gemini(finding_line, doc, api_key)
+            return _explain_with_gemini(finding_line, doc, gemini_key)
         except Exception as exc:  # network/SDK errors shouldn't kill a scan
             return _explain_template(doc) + f"\n(Gemini generation unavailable: {exc})"
 
+    if groq_key:
+        try:
+            return _explain_with_groq(finding_line, doc, groq_key)
+        except Exception as exc:
+            return _explain_template(doc) + f"\n(Groq generation unavailable: {exc})"
+
     return _explain_template(doc)
+
+
+def _build_prompt(finding_line: str, doc: KBDoc) -> str:
+    return (
+        "You are a migration assistant. Explain in 2-3 sentences, in plain "
+        "language, what the developer should do about the code line below. "
+        "Use ONLY the CONTEXT provided - do not add facts that aren't in it. "
+        "End your answer with a citation in the form (source: <title>).\n\n"
+        f"CODE LINE:\n{finding_line}\n\n"
+        f"CONTEXT (title: {doc.title}):\n{doc.body}\n"
+    )
 
 
 def _explain_template(doc: KBDoc) -> str:
@@ -92,14 +115,21 @@ def _explain_with_gemini(finding_line: str, doc: KBDoc, api_key: str) -> str:
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.0-flash")
-
-    prompt = (
-        "You are a migration assistant. Explain in 2-3 sentences, in plain "
-        "language, what the developer should do about the code line below. "
-        "Use ONLY the CONTEXT provided - do not add facts that aren't in it. "
-        "End your answer with a citation in the form (source: <title>).\n\n"
-        f"CODE LINE:\n{finding_line}\n\n"
-        f"CONTEXT (title: {doc.title}):\n{doc.body}\n"
-    )
-    response = model.generate_content(prompt)
+    response = model.generate_content(_build_prompt(finding_line, doc))
     return response.text.strip()
+
+
+def _explain_with_groq(finding_line: str, doc: KBDoc, api_key: str) -> str:
+    # Groq serves open-weight models (Llama etc.) behind an OpenAI-compatible
+    # API, with a free tier and no billing setup required - the open-source
+    # alternative to the Gemini path above. Same grounded prompt either way.
+    from groq import Groq  # imported lazily - optional dependency
+
+    client = Groq(api_key=api_key)
+    completion = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": _build_prompt(finding_line, doc)}],
+        temperature=0.2,
+        max_tokens=200,
+    )
+    return completion.choices[0].message.content.strip()
