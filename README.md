@@ -89,17 +89,6 @@ Precision: 1.00 Recall: 1.00
 All findings match expected ground truth exactly.
 
 
-## Roadmap (deliberately not built yet)
-
-- **PR generation** - open an actual PR with the env var renamed and a
-  migration checklist, instead of just reporting.
-- **Live-project probing** - optionally hit a project's REST endpoint to
-  confirm which key format is actually configured server-side.
-- **Real embedding-based retrieval** - current retrieval is a direct
-  topic-id lookup because the knowledge base is intentionally small
-  right now; worth swapping for real similarity search once the corpus
-  grows.
-
 ## Project layout
 
 supabase_migrate/
