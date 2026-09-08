@@ -127,7 +127,7 @@ def _explain_with_groq(finding_line: str, doc: KBDoc, api_key: str) -> str:
 
     client = Groq(api_key=api_key)
     completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[{"role": "user", "content": _build_prompt(finding_line, doc)}],
         temperature=0.2,
         max_tokens=200,
