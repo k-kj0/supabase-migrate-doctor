@@ -13,9 +13,11 @@ dependencies = []
 [project.optional-dependencies]
 gemini = ["google-generativeai>=0.5"]
 groq = ["groq>=0.9"]
+mcp = ["mcp[cli]>=1.0"]
 
 [project.scripts]
 supabase-migrate = "supabase_migrate.cli:main"
+supabase-migrate-mcp = "supabase_migrate.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["supabase_migrate*"]
