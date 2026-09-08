@@ -16,6 +16,7 @@ Stack Overflow answer, and copy-pasted `.env.example` referencing the
 old key names - is on a clock.
 
 Two problems compound this:
+
 1. **It's not just a find-and-replace.** The same pattern (a legacy key
    reference) can mean "safe, just needs migrating" or "privileged key
    is one bundler config away from shipping to the browser," and only
@@ -29,78 +30,128 @@ Two problems compound this:
 
 ## What it does
 
+\`\`\`
 supabase-migrate scan ./my-project
-
+\`\`\`
 
 - Walks the repo for legacy key literals, legacy env-var names, and
   already-migrated new-format keys
-- Classifies each finding: CRITICAL (privileged key reachable from
-  client code) / HIGH (privileged key, server-side) / MEDIUM (anon key)
-  / INFO (already migrated)
+- Classifies each finding: **CRITICAL** (privileged key reachable from
+  client code) / **HIGH** (privileged key, server-side) / **MEDIUM**
+  (anon key) / **INFO** (already migrated)
 - Explains each finding, citing the specific migration doc it's grounded in
 - Exits non-zero on HIGH+ findings by default, so it can gate CI
 
-Works with **zero API keys and zero required dependencies** - explanations
-come from a deterministic, cited template by default. Set `GEMINI_API_KEY`
-to upgrade explanations to Gemini-generated ones (still constrained to
-only use the retrieved doc as context - see `supabase_migrate/rag.py`).
+## Two explanation modes, both verified working
+
+- **Offline template mode** (default, zero setup) - a deterministic,
+  cited sentence pulled directly from the knowledge base. No API key,
+  no network call, always available.
+- **AI-generated mode** - set `GEMINI_API_KEY` or `GROQ_API_KEY` and
+  explanations are generated in natural language instead, still
+  constrained to only use the retrieved doc as context (see
+  `supabase_migrate/rag.py`). The Groq path runs `openai/gpt-oss-120b`,
+  an open-weight model, served on Groq's free tier - no billing setup
+  required. If a key is set but the call fails for any reason, the tool
+  automatically falls back to template mode instead of crashing.
 
 ## Quickstart
 
-```bash
+\`\`\`bash
 pip install -e .
 supabase-migrate scan ./path/to/repo
 supabase-migrate scan ./path/to/repo --json --fail-on CRITICAL   # for CI
-```
+\`\`\`
 
 Try it against the bundled fixture repo first:
 
-```bash
+\`\`\`bash
 supabase-migrate scan tests/fixtures/sample_repo
-```
+\`\`\`
 
-Sample output:
+Sample output (offline template mode):
 
+\`\`\`
 Scanned 4 files.
 
-CRITICAL: 1 HIGH: 2 MEDIUM: 1 INFO: 1
+  CRITICAL: 1   HIGH: 2   MEDIUM: 1   INFO: 1
 
 [CRITICAL] src/supabaseClient.js:6
-process.env.SUPABASE_SERVICE_ROLE_KEY
--> A service_role-style identifier is referenced from what looks like client/frontend code...
--> A service_role (or its future sb_secret_ equivalent) referenced from code that runs in the
-browser... (source: A privileged key referenced from client-facing code, https://supabase.com/...)
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+    -> A service_role-style identifier is referenced from what looks like client/frontend code...
+    -> A service_role (or its future sb_secret_ equivalent) referenced from code that runs in the
+       browser... (source: A privileged key referenced from client-facing code, https://supabase.com/...)
+\`\`\`
 
+Sample output with `GROQ_API_KEY` set (AI-generated mode):
+
+\`\`\`
+[INFO] src/newClient.js:5
+    'sb_publishable_abcdef1234567890'
+    -> Already using a new-format (sb_publishable_/sb_secret_) key here - no action needed.
+    -> The client code still reads the same environment variable but now needs the updated key.
+       The call to createClient() does not need to change - only the value being passed to it does.
+       (source: The new sb_publishable_ / sb_secret_ key format)
+\`\`\`
 
 ## Checking the tool against ground truth
 
 `tests/fixtures/sample_repo` is a small hand-built repo with a known,
 labeled set of findings (`tests/fixtures/expected.json`). Run:
 
-```bash
+\`\`\`bash
 python -m tests.eval
-```
+\`\`\`
 
 This is the piece I'd point to first in an interview: it's not "trust
 that the tool works," it's a checkable precision/recall number.
 
-Expected: 5 Found: 5 Matched: 5
-Precision: 1.00 Recall: 1.00
+\`\`\`
+Expected: 5  Found: 5  Matched: 5
+Precision: 1.00   Recall: 1.00
 All findings match expected ground truth exactly.
+\`\`\`
 
+## Setting up an AI key (optional)
+
+Never put an API key directly in code or in `requirements.txt` - both
+of those get committed to a public repo. Set it as an environment
+variable instead:
+
+\`\`\`bash
+export GROQ_API_KEY=your_key_here      # free tier, get one at console.groq.com
+# or
+export GEMINI_API_KEY=your_key_here    # free tier, get one at aistudio.google.com/apikey
+\`\`\`
+
+If you're running this in a GitHub Codespace, store it as a
+[Codespaces secret](https://github.com/settings/codespaces) instead so
+it's never typed into a file at all.
+
+## Roadmap (deliberately not built yet)
+
+- **PR generation** - open an actual PR with the env var renamed and a
+  migration checklist, instead of just reporting.
+- **Live-project probing** - optionally hit a project's REST endpoint to
+  confirm which key format is actually configured server-side.
+- **Real embedding-based retrieval** - current retrieval is a direct
+  topic-id lookup because the knowledge base is intentionally small
+  right now; worth swapping for real similarity search once the corpus
+  grows.
 
 ## Project layout
 
+\`\`\`
 supabase_migrate/
-scanner.py # finds legacy key literals / env-var names / new-format keys
-classifier.py # risk-scores each finding
-rag.py # retrieval + grounded explanation (offline or Gemini)
-cli.py # supabase-migrate scan ...
-knowledge_base/ # small, explicit, cited docs the explanations are grounded in
+  scanner.py      # finds legacy key literals / env-var names / new-format keys
+  classifier.py   # risk-scores each finding
+  rag.py          # retrieval + grounded explanation (Gemini, Groq, or offline)
+  cli.py          # `supabase-migrate scan ...`
+knowledge_base/    # small, explicit, cited docs the explanations are grounded in
 tests/
-fixtures/ # hand-labeled sample repo + expected findings
-eval.py # precision/recall check against the fixtures
-
+  fixtures/        # hand-labeled sample repo + expected findings
+  eval.py          # precision/recall check against the fixtures
+\`\`\`
 
 ## Sources for the migration timeline claims in this README
 
