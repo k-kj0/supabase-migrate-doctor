@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .cost_tracker import log_cost
+
 KB_DIR = Path(__file__).parent.parent / "knowledge_base"
 
 _STOPWORDS = {
@@ -104,10 +106,14 @@ def _build_prompt(finding_line: str, doc: KBDoc) -> str:
 
 
 def _explain_template(doc: KBDoc) -> str:
-    # Deterministic, no-API-key fallback - a direct, cited summary of the
-    # retrieved chunk rather than a generated paraphrase.
-    first_sentence = doc.body.split(". ")[0].strip().rstrip(".") + "."
-    return f"{first_sentence} (source: {doc.title}, {doc.source_url})"
+    # Deterministic, no-API-key fallback - a cited summary of the retrieved
+    # chunk. Uses the first TWO sentences, not just one: some docs (e.g.
+    # secret_key_rotation.md) put the actual required action in the second
+    # sentence, and a one-sentence summary was silently dropping it - caught
+    # by tests/eval_explanations.py's behavioral assertions, not by eyeballing.
+    sentences = doc.body.split(". ")
+    summary = ". ".join(sentences[:2]).strip().rstrip(".") + "."
+    return f"{summary} (source: {doc.title}, {doc.source_url})"
 
 
 def _explain_with_gemini(finding_line: str, doc: KBDoc, api_key: str) -> str:
@@ -116,13 +122,24 @@ def _explain_with_gemini(finding_line: str, doc: KBDoc, api_key: str) -> str:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.0-flash")
     response = model.generate_content(_build_prompt(finding_line, doc))
+
+    usage = getattr(response, "usage_metadata", None)
+    if usage:
+        log_cost(
+            provider="gemini",
+            model="gemini-2.0-flash",
+            input_tokens=usage.prompt_token_count,
+            output_tokens=usage.candidates_token_count,
+        )
     return response.text.strip()
 
 
 def _explain_with_groq(finding_line: str, doc: KBDoc, api_key: str) -> str:
-    # Groq serves open-weight models (Llama etc.) behind an OpenAI-compatible
-    # API, with a free tier and no billing setup required - the open-source
-    # alternative to the Gemini path above. Same grounded prompt either way.
+    # Groq serves open-weight models behind an OpenAI-compatible API, with a
+    # free tier and no billing setup required - the open-weight alternative
+    # to the Gemini path above. Same grounded prompt either way.
+    # Note: llama-3.3-70b-versatile was deprecated by Groq on 2026-06-17;
+    # gpt-oss-120b is their recommended replacement (see console.groq.com/docs/deprecations).
     from groq import Groq  # imported lazily - optional dependency
 
     client = Groq(api_key=api_key)
@@ -132,4 +149,13 @@ def _explain_with_groq(finding_line: str, doc: KBDoc, api_key: str) -> str:
         temperature=0.2,
         max_tokens=200,
     )
+
+    usage = getattr(completion, "usage", None)
+    if usage:
+        log_cost(
+            provider="groq",
+            model="openai/gpt-oss-120b",
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+        )
     return completion.choices[0].message.content.strip()
