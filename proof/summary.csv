@@ -1,0 +1,7 @@
+timestamp,target,files_scanned,critical,high,medium,info
+20260925_085301,permitio/supabase-fine-grained-authorization,27,0,0,4,0
+20260925_085828,John-Weeks-Dev/ebay-clone,51,0,0,1,0
+20260925_085604,supabase-community/nextjs-subscription-payments,67,1,4,4,0
+20260925_085919,salmandotweb/nextjs-supabase-boilerplate,43,1,1,1,0
+20260925_090814,KolbySisk/next-supabase-stripe-starter,64,2,1,3,0
+20260925_091017,KolbySisk/next-supabase-stripe-starter,64,2,1,3,0
