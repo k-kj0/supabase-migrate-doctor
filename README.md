@@ -1,160 +1,55 @@
-# supabase-migrate-doctor
+## Real-world testing
 
-A CLI that scans a codebase for legacy Supabase API key usage, tells you
-exactly how risky each usage is, and explains what to do about it -
-grounded in Supabase's own migration docs, with a citation on every
-explanation.
+Beyond the hand-labeled fixture (see "Checking the tool against ground truth" above),
+I had three people run the scanner against real, unmodified public repositories in
+their own GitHub Codespaces, independent of my own environment. This is informal
+manual testing, not a benchmark or a formal user study, but it's real usage against
+code none of us wrote.
 
-## Why this exists
+**6 scans, 5 distinct public repos, 3 testers:**
 
-Supabase is retiring its legacy JWT-based `anon` / `service_role` keys in
-favor of new `sb_publishable_` / `sb_secret_` keys. New projects created
-after November 2025 no longer get legacy keys at all, and Supabase's own
-docs state the legacy keys are planned for deprecation and removal by
-the end of 2026. That means every existing project - and every tutorial,
-Stack Overflow answer, and copy-pasted `.env.example` referencing the
-old key names - is on a clock.
+| Repo | Files | Critical | High | Medium | Info |
+|---|---|---|---|---|---|
+| permitio/supabase-fine-grained-authorization | 27 | 0 | 0 | 4 | 0 |
+| John-Weeks-Dev/ebay-clone | 51 | 0 | 0 | 1 | 0 |
+| supabase-community/nextjs-subscription-payments | 67 | 1 | 4 | 4 | 0 |
+| salmandotweb/nextjs-supabase-boilerplate | 43 | 1 | 1 | 1 | 0 |
+| KolbySisk/next-supabase-stripe-starter (2 runs) | 64 | 2 | 1 | 3 | 0 |
 
-Two problems compound this:
+Across the 5 distinct repos, the tool found legacy-key references ranging from
+minor (a `.env.example` placeholder) to CRITICAL (a privileged key reachable from
+client-side code), which matches the range the classifier is designed to catch.
+The stripe-starter repo was scanned twice by the same tester and returned identical
+counts both times — a small but real reproducibility check.
 
-1. **It's not just a find-and-replace.** The same pattern (a legacy key
-   reference) can mean "safe, just needs migrating" or "privileged key
-   is one bundler config away from shipping to the browser," and only
-   the second one is an emergency.
-2. **Generic AI assistance is a bad fit here.** A model's training data
-   almost certainly reflects the *old* key system as the "correct" one,
-   which means asking a general chatbot for help can produce confidently
-   wrong migration advice. Any explanation this tool gives is grounded
-   in a small, explicit knowledge base (see `knowledge_base/`) with a
-   source URL attached - not the model's memory.
+Full JSON output for every run is in `scan_logs/`; `scan_logs/summary.csv` has one
+row per scan with a timestamp.
 
-## What it does
+### Problems found and fixed during testing
 
-\`\`\`
-supabase-migrate scan ./my-project
-\`\`\`
+Testing against three independent environments surfaced real setup issues that
+didn't show up when I was the only person running the tool:
 
-- Walks the repo for legacy key literals, legacy env-var names, and
-  already-migrated new-format keys
-- Classifies each finding: **CRITICAL** (privileged key reachable from
-  client code) / **HIGH** (privileged key, server-side) / **MEDIUM**
-  (anon key) / **INFO** (already migrated)
-- Explains each finding, citing the specific migration doc it's grounded in
-- Exits non-zero on HIGH+ findings by default, so it can gate CI
+1. **`ModuleNotFoundError: No module named 'supabase_migrate.cost_tracker'`**
+   A tester's Codespace had cloned the repo before `cost_tracker.py` was pushed to
+   `main`. Fixed by pushing the file and having testers run `git pull` before
+   re-installing.
+2. **`bash: run_and_log.sh: No such file or directory`**
+   The logging script is created via a pasted heredoc block; if the paste is
+   interrupted partway, the file never gets written. Fixed by having testers
+   re-paste the full block in one go and confirm with `ls` before running it.
+3. **`fatal: destination path '/tmp/testrepoX' already exists and is not an empty
+   directory`**
+   A tester re-ran the setup commands, including `git clone`, into a folder that
+   already held a previous clone. Fixed by reusing the existing folder instead of
+   re-cloning — which is how the reproducibility check above happened.
 
-## Two explanation modes, both verified working
+None of these were bugs in the scanner or classifier logic itself — all three were
+environment/setup friction, which is exactly the kind of thing that's invisible
+until someone other than the author runs the tool.
 
-- **Offline template mode** (default, zero setup) - a deterministic,
-  cited sentence pulled directly from the knowledge base. No API key,
-  no network call, always available.
-- **AI-generated mode** - set `GEMINI_API_KEY` or `GROQ_API_KEY` and
-  explanations are generated in natural language instead, still
-  constrained to only use the retrieved doc as context (see
-  `supabase_migrate/rag.py`). The Groq path runs `openai/gpt-oss-120b`,
-  an open-weight model, served on Groq's free tier - no billing setup
-  required. If a key is set but the call fails for any reason, the tool
-  automatically falls back to template mode instead of crashing.
-
-## Quickstart
-
-\`\`\`bash
-pip install -e .
-supabase-migrate scan ./path/to/repo
-supabase-migrate scan ./path/to/repo --json --fail-on CRITICAL   # for CI
-\`\`\`
-
-Try it against the bundled fixture repo first:
-
-\`\`\`bash
-supabase-migrate scan tests/fixtures/sample_repo
-\`\`\`
-
-Sample output (offline template mode):
-
-\`\`\`
-Scanned 4 files.
-
-  CRITICAL: 1   HIGH: 2   MEDIUM: 1   INFO: 1
-
-[CRITICAL] src/supabaseClient.js:6
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-    -> A service_role-style identifier is referenced from what looks like client/frontend code...
-    -> A service_role (or its future sb_secret_ equivalent) referenced from code that runs in the
-       browser... (source: A privileged key referenced from client-facing code, https://supabase.com/...)
-\`\`\`
-
-Sample output with `GROQ_API_KEY` set (AI-generated mode):
-
-\`\`\`
-[INFO] src/newClient.js:5
-    'sb_publishable_abcdef1234567890'
-    -> Already using a new-format (sb_publishable_/sb_secret_) key here - no action needed.
-    -> The client code still reads the same environment variable but now needs the updated key.
-       The call to createClient() does not need to change - only the value being passed to it does.
-       (source: The new sb_publishable_ / sb_secret_ key format)
-\`\`\`
-
-## Checking the tool against ground truth
-
-`tests/fixtures/sample_repo` is a small hand-built repo with a known,
-labeled set of findings (`tests/fixtures/expected.json`). Run:
-
-\`\`\`bash
-python -m tests.eval
-\`\`\`
-
-This is the piece I'd point to first in an interview: it's not "trust
-that the tool works," it's a checkable precision/recall number.
-
-\`\`\`
-Expected: 5  Found: 5  Matched: 5
-Precision: 1.00   Recall: 1.00
-All findings match expected ground truth exactly.
-\`\`\`
-
-## Setting up an AI key (optional)
-
-Never put an API key directly in code or in `requirements.txt` - both
-of those get committed to a public repo. Set it as an environment
-variable instead:
-
-\`\`\`bash
-export GROQ_API_KEY=your_key_here      # free tier, get one at console.groq.com
-# or
-export GEMINI_API_KEY=your_key_here    # free tier, get one at aistudio.google.com/apikey
-\`\`\`
-
-If you're running this in a GitHub Codespace, store it as a
-[Codespaces secret](https://github.com/settings/codespaces) instead so
-it's never typed into a file at all.
-
-## Roadmap (deliberately not built yet)
-
-- **PR generation** - open an actual PR with the env var renamed and a
-  migration checklist, instead of just reporting.
-- **Live-project probing** - optionally hit a project's REST endpoint to
-  confirm which key format is actually configured server-side.
-- **Real embedding-based retrieval** - current retrieval is a direct
-  topic-id lookup because the knowledge base is intentionally small
-  right now; worth swapping for real similarity search once the corpus
-  grows.
-
-## Project layout
-
-\`\`\`
-supabase_migrate/
-  scanner.py      # finds legacy key literals / env-var names / new-format keys
-  classifier.py   # risk-scores each finding
-  rag.py          # retrieval + grounded explanation (Gemini, Groq, or offline)
-  cli.py          # `supabase-migrate scan ...`
-knowledge_base/    # small, explicit, cited docs the explanations are grounded in
-tests/
-  fixtures/        # hand-labeled sample repo + expected findings
-  eval.py          # precision/recall check against the fixtures
-\`\`\`
-
-## Sources for the migration timeline claims in this README
-
-- https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys
-- https://supabase.com/docs/guides/api/api-keys
-- https://github.com/orgs/supabase/discussions/29260
+**Honest limitations of this round of testing:** 5 repos is a small, non-random
+sample, all Next.js/JS-ecosystem projects. It doesn't cover other frameworks
+(Flutter, plain Python backends, etc.), and testers followed a script I wrote
+rather than exploring freely. I'm treating this as a first real-world pass, not
+a validation study.
