@@ -1,5 +1,5 @@
 # supabase-migrate-doctor
-
+![CI](https://github.com/k-kj0/supabase-migrate-doctor/actions/workflows/ci.yml/badge.svg)
 A CLI that scans a codebase for legacy Supabase API key usage, tells you exactly how risky each usage is, and explains what to do about it - grounded in Supabase's own migration docs, with a citation on every explanation.
 
 ## Why this exists
