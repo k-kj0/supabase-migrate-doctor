@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the package
+        run: pip install -e .
+
+      - name: Run the scanner against the fixture repo
+        run: supabase-migrate scan tests/fixtures/sample_repo
+
+      - name: Run precision/recall evaluation
+        run: python -m tests.eval
