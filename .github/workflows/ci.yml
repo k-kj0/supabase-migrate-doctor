@@ -19,8 +19,16 @@ jobs:
       - name: Install the package
         run: pip install -e .
 
-      - name: Run the scanner against the fixture repo
+      # This step is here to show sample output in the CI log. The fixture
+      # repo intentionally contains fake vulnerable code, so a non-zero exit
+      # here is expected, not a failure. continue-on-error keeps the log
+      # visible without failing the job.
+      - name: Run the scanner against the fixture repo (demo output only)
         run: supabase-migrate scan tests/fixtures/sample_repo
+        continue-on-error: true
 
+      # This is the actual pass/fail gate: it checks the scanner's findings
+      # against a known, hand-labeled answer key (expected.json), not just
+      # whether findings exist.
       - name: Run precision/recall evaluation
         run: python -m tests.eval
